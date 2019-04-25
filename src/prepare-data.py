@@ -7,6 +7,7 @@ import os
 import numpy as np
 import math
 from collections import defaultdict, Counter
+import glob
 
 """
 This script processes an input text file to produce data in binary
@@ -14,7 +15,7 @@ format to be used with the autoencoder (binary is much faster to read).
 """
 
 
-def load_data_memory_friendly(path, max_size, min_occurrences=10,
+def load_data_memory_friendly(input_path, valid_path, max_size, min_occurrences=10,
                               valid_proportion=0.01):
     """
     Return a tuple (dict, dict, list) where each dict maps names to
@@ -26,23 +27,26 @@ def load_data_memory_friendly(path, max_size, min_occurrences=10,
 
     # first pass to build vocabulary and count sentence sizes
     print('Creating vocabulary...')
-    with open(path, 'rb') as f:
-        for line in f:
-            line = line.decode('utf-8')
-            tokens = line.split()
-            sent_size = len(tokens)
-            if sent_size > max_size:
-                continue
+    for name in glob.glob(os.path.join(input_path, '*.txt')):
+        with open(name, 'rb') as f:
+            for line in f:
+                line = line.decode('latin-1')
+                tokens = line.split()
+                sent_size = len(tokens)
+                if sent_size > max_size:
+                    continue
 
-            # keep track of different size bins, with bins for
-            # 1-10, 11-20, 21-30, etc
-            top_bin = int(math.ceil(sent_size / 10) * 10)
-            size_counter[top_bin] += 1
-            token_counter.update(tokens)
+                # keep track of different size bins, with bins for
+                # 1-10, 11-20, 21-30, etc
+                top_bin = int(math.ceil(sent_size / 10) * 10)
+                size_counter[top_bin] += 1
+                token_counter.update(tokens)
 
     # sort it keeping the order
     vocabulary = [w for w, count in token_counter.most_common()
                   if count >= min_occurrences]
+    print('Vocabulary composed...')
+    print(vocabulary)
     # this might break the ordering, but hopefully is not a problem
     vocabulary.insert(0, '</s>')
     vocabulary.insert(1, '<unk>')
@@ -59,20 +63,22 @@ def load_data_memory_friendly(path, max_size, min_occurrences=10,
             num_sentences = size_counter[threshold]
             print('Converting %d sentences with length between %d and %d'
                   % (num_sentences, min_threshold, threshold))
-            sents, sizes = create_sentence_matrix(path, num_sentences,
+            input_sents, input_sizes = create_sentence_matrix(input_path, num_sentences,
+                                                  min_threshold, threshold, dd)
+            valid_sents, valid_sizes = create_sentence_matrix(valid_path, num_sentences,
                                                   min_threshold, threshold, dd)
 
             # shuffle sentences and sizes with the sime RNG state
             state = np.random.get_state()
-            np.random.shuffle(sents)
+            # np.random.shuffle(sents)
             np.random.set_state(state)
-            np.random.shuffle(sizes)
+            # np.random.shuffle(sizes)
 
-            ind = int(len(sents) * valid_proportion)
-            valid_sentences = sents[:ind]
-            valid_sizes = sizes[:ind]
-            train_sentences = sents[ind:]
-            train_sizes = sizes[ind:]
+            ind = int(len(input_sents) * valid_proportion)
+            valid_sentences = valid_sents[:ind]
+            valid_sizes = valid_sizes[:ind]
+            train_sentences = input_sents[ind:]
+            train_sizes = input_sizes[ind:]
 
             train_data['sentences-%d' % threshold] = train_sentences
             train_data['sizes-%d' % threshold] = train_sizes
@@ -97,19 +103,20 @@ def create_sentence_matrix(path, num_sentences, min_size,
     """
     sentence_matrix = np.full((num_sentences, max_size), 0, np.int32)
     sizes = np.empty(num_sentences, np.int32)
-    i = 0
-    with open(path, 'rb') as f:
-        for line in f:
-            line = line.decode('utf-8')
-            tokens = line.split()
-            sent_size = len(tokens)
-            if sent_size < min_size or sent_size > max_size:
-                continue
+    for name in glob.glob(os.path.join(path, '*.txt')):
+        i = 0
+        with open(name, 'rb') as f:
+            for line in f:
+                line = line.decode('latin-1')
+                tokens = line.split()
+                sent_size = len(tokens)
+                if sent_size < min_size or sent_size > max_size:
+                    continue
 
-            array = np.array([word_dict[token] for token in tokens])
-            sentence_matrix[i, :sent_size] = array
-            sizes[i] = sent_size
-            i += 1
+                array = np.array([word_dict[token] for token in tokens])
+                sentence_matrix[i, :sent_size] = array
+                sizes[i] = sent_size
+                i += 1
 
     return sentence_matrix, sizes
 
@@ -138,7 +145,7 @@ def load_data(path, max_size, min_occurrences=10):
 
     with open(path, 'rb') as f:
         for line in f:
-            line = line.decode('utf-8')
+            line = line.decode('latin-1')
             tokens = line.split()
             sent_size = len(tokens)
             if sent_size > max_size:
@@ -206,13 +213,15 @@ def write_vocabulary(words, path):
     """
     text = '\n'.join(words)
     with open(path, 'wb') as f:
-        f.write(text.encode('utf-8'))
+        f.write(text.encode('latin-1'))
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('input', help='Text file previously tokenized '
                                       '(by whitespace) and preprocessed')
+    parser.add_argument('valid', help='Text file previously tokenized '
+                                      '(by whitespace) and preprocessed with valid summaries')
     parser.add_argument('output', help='Directory to save the data')
     parser.add_argument('--max-length',
                         help='Maximum sentence size (default 60)',
@@ -227,7 +236,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     train_data, valid_data, words = load_data_memory_friendly(
-        args.input, args.max_length, args.min_freq, args.valid_proportion)
+        args.input, args.valid, args.max_length, args.min_freq, args.valid_proportion)
 
     if not os.path.exists(args.output):
         os.makedirs(args.output)
