@@ -93,7 +93,7 @@ if __name__ == '__main__':
     embeddings = load_or_create_embeddings(args.embeddings, wd.vocabulary_size,
                                            args.embedding_size)
 
-    logging.info('Reading training data')
+    logging.info('Нахуй пішов')
     train_data = utils.load_binary_data(args.train)
     logging.info('Reading validation data')
     valid_data = utils.load_binary_data(args.valid)
